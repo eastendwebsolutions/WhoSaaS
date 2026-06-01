@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 
@@ -88,6 +89,7 @@ function splitSegmentByDay(segment: Segment): SegmentChunk[] {
 }
 
 export function QuickEntryForm({ projects, tasks }: Props) {
+  const router = useRouter();
   const [projectSearch, setProjectSearch] = useState("");
   const [taskSearch, setTaskSearch] = useState("");
   const [subtaskSearch, setSubtaskSearch] = useState("");
@@ -310,7 +312,7 @@ export function QuickEntryForm({ projects, tasks }: Props) {
       setSubtaskSearch("");
       setMessage("Time entries saved.");
       window.localStorage.removeItem(TIMER_DRAFT_STORAGE_KEY);
-      window.location.href = "/timesheet";
+      router.refresh();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Failed to save entries.");
     } finally {
