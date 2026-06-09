@@ -2,7 +2,7 @@ import Link from "next/link";
 import { UserButton } from "@clerk/nextjs";
 import { WhoSaaSLogo } from "@/components/brand/whosaas-logo";
 import { AsanaHeaderStatus } from "@/components/integrations/asana-header-status";
-import { TeamStatusHeaderIndicator } from "@/components/team-status/header-indicator";
+import { WorkdayHeaderActions } from "@/components/team-status/workday-header-actions";
 import { NavDropdown } from "@/components/layout/nav-dropdown";
 
 type NavItem = { href: string; label: string };
@@ -60,7 +60,7 @@ export function AppHeader({
         </nav>
 
         <div className="ml-auto flex shrink-0 items-center gap-2">
-          <TeamStatusHeaderIndicator variant="compact" />
+          <WorkdayHeaderActions />
           <AsanaHeaderStatus
             variant="compact"
             provider={integration.provider}
