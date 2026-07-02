@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canSubmitForLatestSubmission, suggestInvoiceNumberForPeriod } from "./submissions";
+import { canSubmitForLatestSubmission, resolveDefaultBillingPeriodState, suggestInvoiceNumberForPeriod } from "./submissions";
 
 describe("billing submission rules", () => {
   it("allows first submission when no history exists", () => {
@@ -16,6 +16,43 @@ describe("billing submission rules", () => {
 
   it("allows retry after failed email", () => {
     expect(canSubmitForLatestSubmission({ status: "failed", emailStatus: "failed" })).toBe(true);
+  });
+});
+
+describe("resolveDefaultBillingPeriodState", () => {
+  function makeState(start: string, end: string, id: string) {
+    return {
+      period: {
+        id,
+        companyId: "company-1",
+        periodStartDate: new Date(`${start}T00:00:00.000Z`),
+        periodEndDate: new Date(`${end}T00:00:00.000Z`),
+        timezone: "America/New_York",
+        label: "unused",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+      latestSubmission: null,
+      canSubmit: true,
+    };
+  }
+
+  it("selects the previous completed week on Sunday", () => {
+    const periodStates = [
+      makeState("2026-07-04", "2026-07-10", "current"),
+      makeState("2026-06-27", "2026-07-03", "previous"),
+    ];
+    const selected = resolveDefaultBillingPeriodState(periodStates, new Date("2026-07-05T16:00:00.000Z"));
+    expect(selected.period.id).toBe("previous");
+  });
+
+  it("selects the current week on Wednesday", () => {
+    const periodStates = [
+      makeState("2026-07-04", "2026-07-10", "current"),
+      makeState("2026-06-27", "2026-07-03", "previous"),
+    ];
+    const selected = resolveDefaultBillingPeriodState(periodStates, new Date("2026-07-08T16:00:00.000Z"));
+    expect(selected.period.id).toBe("current");
   });
 });
 

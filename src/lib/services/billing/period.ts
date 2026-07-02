@@ -87,6 +87,18 @@ export function getMostRecentCompletedBillingWeek(now = new Date()) {
   };
 }
 
+export function isSundayOrMondayInBillingTz(now = new Date()) {
+  const weekday = weekdayIndexShort(weekdayFormatter.format(now));
+  return weekday === 0 || weekday === 1;
+}
+
+export function getDefaultBillingPeriodBounds(now = new Date()) {
+  if (isSundayOrMondayInBillingTz(now)) {
+    return getMostRecentCompletedBillingWeek(now);
+  }
+  return getBillingWeekBounds(now);
+}
+
 export function getBillingPeriodLabel(periodStart: Date, periodEnd: Date) {
   return `${billingPeriodLabelFormatter.format(periodStart)} to ${billingPeriodLabelFormatter.format(periodEnd)}`;
 }

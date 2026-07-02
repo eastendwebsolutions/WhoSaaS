@@ -198,10 +198,9 @@ export function InvoicingPageClient({ userDisplayName, userEmail }: { userDispla
     setLineItems((prev) => {
       if (!prev.length) return [newLineItem(suggested)];
       const [first, ...rest] = prev;
-      if (first.description.trim()) return prev;
       return [{ ...first, description: suggested }, ...rest];
     });
-  }, [selectedPeriod?.label]);
+  }, [selectedPeriod?.id, selectedPeriod?.label]);
 
   useEffect(() => {
     if (!selectedPeriod?.canSubmit || invoiceNumberTouched.current) return;

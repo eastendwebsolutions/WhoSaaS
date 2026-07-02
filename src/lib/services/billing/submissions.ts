@@ -11,7 +11,7 @@ import {
 import { billingSubmissionCreateSchema, type InvoiceLineItem, type UserBillingSnapshot } from "@/lib/validation/billing";
 import { listWorkspaceOptionsForSuperAdmin } from "@/lib/services/workspace-options";
 import { resolveWorkspaceScopedCompanyIdsForSuperAdmin } from "@/lib/services/workspace-options";
-import { formatSubmittedAtEasternLabel, getBillingPeriodLabel, getBillingWeekBounds, getPeriodKey, withComputedBillingPeriodLabel } from "./period";
+import { formatSubmittedAtEasternLabel, getBillingPeriodLabel, getBillingWeekBounds, getDefaultBillingPeriodBounds, getPeriodKey, withComputedBillingPeriodLabel } from "./period";
 import { buildInvoiceSubject, suggestNextInvoiceNumber } from "./invoice";
 import { buildSubmissionEmailRecipients } from "./email-recipients";
 import { sendBillingSubmissionEmail } from "./email";
@@ -177,15 +177,26 @@ function mapPeriodOption(state: BillingPeriodState, lastGlobalInvoiceNumber: str
   };
 }
 
-export async function getCurrentBillingState(user: AppUser) {
-  const periodStates = await getSelectableBillingPeriods(user);
-  const selected = periodStates[0];
-  if (!selected) {
+export function resolveDefaultBillingPeriodState(periodStates: BillingPeriodState[], now = new Date()) {
+  if (!periodStates.length) {
     throw new Error("No billing periods available.");
   }
+
+  const defaultBounds = getDefaultBillingPeriodBounds(now);
+  const defaultKey = getPeriodKey(defaultBounds.periodStart, defaultBounds.periodEnd);
+  return (
+    periodStates.find(
+      (state) => getPeriodKey(state.period.periodStartDate, state.period.periodEndDate) === defaultKey,
+    ) ?? periodStates[0]
+  );
+}
+
+export async function getCurrentBillingState(user: AppUser, now = new Date()) {
+  const periodStates = await getSelectableBillingPeriods(user, now);
+  const selected = resolveDefaultBillingPeriodState(periodStates, now);
   const lastSubmittedInvoiceNumber = await getLastSubmittedInvoiceNumber(user.id, user.companyId);
   const periodOptions = periodStates.map((state) => mapPeriodOption(state, lastSubmittedInvoiceNumber));
-  const selectedOption = periodOptions[0];
+  const selectedOption = periodOptions.find((option) => option.id === selected.period.id) ?? periodOptions[0];
   const settings = await db.query.billingSettings.findFirst({
     where: eq(billingSettings.companyId, user.companyId),
   });
