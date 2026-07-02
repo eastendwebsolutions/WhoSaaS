@@ -8,6 +8,8 @@ type Entry = {
   id: string;
   entryDate: string | Date;
   projectId: string;
+  taskId: string;
+  subtaskId: string | null;
   timeIn: string | Date;
   timeOut: string | Date;
   summary: string;
@@ -24,10 +26,20 @@ type Props = {
   entries: Entry[];
   weekDates: Date[];
   projectOptions: ProjectOption[];
+  taskNameById: Record<string, string>;
   timezone: string;
 };
 
-export function TimesheetClient({ entries, weekDates, projectOptions, timezone }: Props) {
+function formatEntryTaskLabel(entry: Entry, taskNameById: Record<string, string>) {
+  const taskName = taskNameById[entry.taskId];
+  const subtaskName = entry.subtaskId ? taskNameById[entry.subtaskId] : null;
+  if (taskName && subtaskName) return `${taskName} › ${subtaskName}`;
+  if (subtaskName) return subtaskName;
+  if (taskName) return taskName;
+  return "—";
+}
+
+export function TimesheetClient({ entries, weekDates, projectOptions, taskNameById, timezone }: Props) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draftSummary, setDraftSummary] = useState("");
   const [pendingId, setPendingId] = useState<string | null>(null);
@@ -170,6 +182,7 @@ export function TimesheetClient({ entries, weekDates, projectOptions, timezone }
             <th className="px-4 py-3">Date</th>
             <th className="px-4 py-3">Time In</th>
             <th className="px-4 py-3">Time Out</th>
+            <th className="px-4 py-3">Task</th>
             <th className="px-4 py-3">Summary</th>
             <th className="px-4 py-3">Hours</th>
             <th className="px-4 py-3">Status</th>
@@ -180,7 +193,7 @@ export function TimesheetClient({ entries, weekDates, projectOptions, timezone }
           {groupedEntries.map(({ date, dayEntries, daySeconds }) => (
             <Fragment key={date.toISOString()}>
               <tr className="border-t border-zinc-700 bg-zinc-900/40">
-                <td className="px-4 py-3 font-medium text-zinc-100" colSpan={4}>
+                <td className="px-4 py-3 font-medium text-zinc-100" colSpan={5}>
                   {formatUsDate(date)}
                 </td>
                 <td className="px-4 py-3 font-mono font-semibold text-zinc-100">{formatHms(daySeconds)}</td>
@@ -194,6 +207,7 @@ export function TimesheetClient({ entries, weekDates, projectOptions, timezone }
                     <td className="px-4 py-3 text-zinc-500">-</td>
                     <td className="px-4 py-3">{formatUsTime(entry.timeIn)}</td>
                     <td className="px-4 py-3">{formatUsTime(entry.timeOut)}</td>
+                    <td className="px-4 py-3 text-zinc-200">{formatEntryTaskLabel(entry, taskNameById)}</td>
                     <td className="px-4 py-3">
                       {isEditing ? (
                         <input
@@ -245,7 +259,7 @@ export function TimesheetClient({ entries, weekDates, projectOptions, timezone }
             </Fragment>
           ))}
           <tr className="border-t border-zinc-700 bg-zinc-900/40">
-            <td className="px-4 py-3 font-medium text-zinc-200" colSpan={4}>
+            <td className="px-4 py-3 font-medium text-zinc-200" colSpan={5}>
               Weekly Total
             </td>
             <td className="px-4 py-3 font-mono font-semibold text-zinc-100">{formatHms(totalSeconds)}</td>

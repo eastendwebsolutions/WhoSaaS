@@ -6,7 +6,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { getOrCreateCurrentUser } from "@/lib/auth/current-user";
 import { db } from "@/lib/db";
-import { projects, timeEntries, timesheets } from "@/lib/db/schema";
+import { projects, tasks, timeEntries, timesheets } from "@/lib/db/schema";
 import { listAuditChanges } from "@/lib/services/audit-log";
 import { getWeekBounds } from "@/lib/services/week";
 import { TimesheetClient } from "@/components/timesheet/timesheet-client";
@@ -31,6 +31,16 @@ export default async function TimesheetPage({ searchParams }: { searchParams: Se
     orderBy: (table, { desc }) => [desc(table.entryDate)],
   });
   const entryProjectIds = [...new Set(entries.map((e) => e.projectId))];
+  const entryTaskIds = [
+    ...new Set(entries.flatMap((entry) => [entry.taskId, entry.subtaskId].filter((id): id is string => Boolean(id)))),
+  ];
+  const entryTasks = entryTaskIds.length
+    ? await db.query.tasks.findMany({
+        where: inArray(tasks.id, entryTaskIds),
+        columns: { id: true, name: true },
+      })
+    : [];
+  const taskNameById = new Map(entryTasks.map((task) => [task.id, task.name]));
   const activeProvider = await getActiveProviderForUser(user.id);
   const projectOptions = await withProjectsProviderColumnFallback(
     () =>
@@ -106,7 +116,13 @@ export default async function TimesheetPage({ searchParams }: { searchParams: Se
       ) : null}
       <Card className="overflow-hidden">
         <div className="p-4">
-          <TimesheetClient entries={entries} weekDates={weekDates} projectOptions={projectOptions} timezone={user.timezone ?? "UTC"} />
+          <TimesheetClient
+            entries={entries}
+            weekDates={weekDates}
+            projectOptions={projectOptions}
+            taskNameById={Object.fromEntries(taskNameById)}
+            timezone={user.timezone ?? "UTC"}
+          />
         </div>
       </Card>
       <AuditTrailTable
