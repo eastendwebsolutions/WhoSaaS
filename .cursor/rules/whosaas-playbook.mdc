@@ -1,0 +1,21 @@
+---
+description: At task start, read the WhoSaaS master agent playbook skill (WS-N, norms, ship/debug)
+alwaysApply: true
+---
+
+# WhoSaaS agent playbook
+
+At the **start of every new task** in this workspace (first actionable message in a new chat, or when the user starts a clearly separate follow-on task):
+
+1. Read [`.cursor/skills/whosaas-workspace/SKILL.md`](../skills/whosaas-workspace/SKILL.md) and follow it
+2. Assign **WS-N** per that skill (counter: `.cursor/skills/workspace-task-id/counter.json`)
+3. Do not duplicate startup instructions from the deprecated `workspace-task-id` skill
+
+For domain context, read linked files from the playbook only when needed:
+
+- [project-context.md](../skills/whosaas-workspace/project-context.md)
+- [workflows.md](../skills/whosaas-workspace/workflows.md)
+- [billing-handoff.md](../skills/whosaas-workspace/billing-handoff.md)
+- [chat-archive-index.md](../skills/whosaas-workspace/chat-archive-index.md)
+
+Commit, deploy, and production debugging norms in the playbook align with [auto-commit-deploy.mdc](auto-commit-deploy.mdc).
