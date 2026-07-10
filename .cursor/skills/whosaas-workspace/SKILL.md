@@ -22,6 +22,14 @@ Much recent work (billing, workday header, timesheet task column, Sun/Mon invoic
 
 Every new task gets a `WS-N` ID via the [workspace-task-id](../workspace-task-id/SKILL.md) skill. Chat titles follow `WS-N - Task Title`.
 
+## Chat history
+
+All SAASTimeTrack and WhoSaaS agent transcripts are merged under:
+
+`~/.cursor/projects/Users-bryanspano-Cursor-WhoSaaS/agent-transcripts/`
+
+See [chat-archive-index.md](chat-archive-index.md) for the full list with titles and archive status.
+
 ## Billing / invoicing
 
 For billing feature context, submission rules, API map, and follow-on work from the original Billing chat, read [billing-handoff.md](billing-handoff.md).
