@@ -107,6 +107,13 @@ export async function syncCursorConnection(connectionId: string) {
 
   const apiKey = decrypt(conn.apiKeyEncrypted);
   const capabilities = await probeCursorCapabilities(apiKey);
+  if (!capabilities.spend) {
+    throw new Error(
+      capabilities.spendError ??
+        "Cursor Admin API access failed. Confirm the key has admin scope and your team plan includes the Admin API.",
+    );
+  }
+
   const spendRows = await fetchTeamSpend(apiKey);
 
   const end = new Date();
@@ -332,6 +339,7 @@ export async function syncCursorConnection(connectionId: string) {
 
   return {
     connectionId: conn.id,
+    accountLabel: conn.accountLabel,
     spendUsers: spendRows.length,
     dailyRows: dailyRows.length,
     findings: findings.length,
@@ -359,7 +367,7 @@ export async function syncAllActiveCursorConnections(companyId?: string, connect
         .update(cursorTeamConnections)
         .set({ lastSyncError: message, updatedAt: new Date() })
         .where(eq(cursorTeamConnections.id, conn.id));
-      results.push({ connectionId: conn.id, error: message });
+      results.push({ connectionId: conn.id, accountLabel: conn.accountLabel, error: message });
     }
   }
   return results;

@@ -62,7 +62,7 @@ export async function PUT(request: NextRequest) {
         createdByUserId: user.id,
       })
       .returning({ id: cursorTeamConnections.id });
-    return NextResponse.json({ ok: true, id: created.id });
+    return NextResponse.json({ ok: true, id: created.id, syncRecommended: true });
   } catch (error) {
     return toServerErrorResponse(error);
   }

@@ -60,12 +60,41 @@ function buildQuery(filters: Record<string, string | undefined>) {
   return p.toString();
 }
 
+type SyncResult = {
+  connectionId?: string;
+  accountLabel?: string;
+  error?: string;
+  spendUsers?: number;
+  dailyRows?: number;
+};
+
 type Props = {
   isAdmin: boolean;
 };
 
+function formatSyncTime(value: string | null | undefined) {
+  if (!value) return "Never synced";
+  return new Date(value).toLocaleString();
+}
+
+function describeSyncResult(result: SyncResult) {
+  if (result.error) return { tone: "error" as const, text: result.error };
+  const users = result.spendUsers ?? 0;
+  const daily = result.dailyRows ?? 0;
+  if (users === 0) {
+    return {
+      tone: "warn" as const,
+      text: "Sync ran, but Cursor returned no spend data. Check that this is a Team Admin API key.",
+    };
+  }
+  return {
+    tone: "ok" as const,
+    text: `${users} user(s), ${daily} daily usage row(s)`,
+  };
+}
+
 export function CursorUsageClient({ isAdmin }: Props) {
-  const [connectionId, setConnectionId] = useState("");
+  const [reportConnectionId, setReportConnectionId] = useState("");
   const [startDate, setStartDate] = useState(() => {
     const d = new Date();
     d.setUTCDate(d.getUTCDate() - 90);
@@ -76,10 +105,12 @@ export function CursorUsageClient({ isAdmin }: Props) {
   const [accountLabel, setAccountLabel] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
+  const [syncResults, setSyncResults] = useState<SyncResult[] | null>(null);
+  const [syncing, setSyncing] = useState(false);
 
   const filterKey = useMemo(
-    () => buildQuery({ connectionId: connectionId || undefined, startDate, endDate }),
-    [connectionId, startDate, endDate],
+    () => buildQuery({ connectionId: reportConnectionId || undefined, startDate, endDate }),
+    [reportConnectionId, startDate, endDate],
   );
 
   const connectionsQuery = useQuery({
@@ -147,6 +178,83 @@ export function CursorUsageClient({ isAdmin }: Props) {
     },
   });
 
+  const runSyncAll = useCallback(async () => {
+    setSyncing(true);
+    setSyncMessage(null);
+    setSyncResults(null);
+    try {
+      const res = await fetch("/api/reports/cursor-usage/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const body = (await res.json().catch(() => ({}))) as { results?: SyncResult[] };
+      if (!res.ok) {
+        setSyncMessage("Sync failed.");
+        return;
+      }
+      const results = body.results ?? [];
+      setSyncResults(results);
+      const errors = results.filter((r) => r.error);
+      const spendUsers = results.reduce((sum, r) => sum + (r.spendUsers ?? 0), 0);
+      if (errors.length > 0) {
+        setSyncMessage(`Sync finished with ${errors.length} error(s). See account status below.`);
+      } else if (spendUsers === 0) {
+        setSyncMessage("Sync finished for all accounts, but Cursor returned no spend data yet.");
+      } else {
+        setSyncMessage(`Sync finished for ${results.length} account(s). Loaded ${spendUsers} Cursor user(s) total.`);
+      }
+      await Promise.all([
+        connectionsQuery.refetch(),
+        summaryQuery.refetch(),
+        usersQuery.refetch(),
+        trendsQuery.refetch(),
+        suggestionsQuery.refetch(),
+      ]);
+    } finally {
+      setSyncing(false);
+    }
+  }, [connectionsQuery, summaryQuery, usersQuery, trendsQuery, suggestionsQuery]);
+
+  const runSyncOne = useCallback(
+    async (targetConnectionId: string) => {
+      setSyncing(true);
+      setSyncMessage(null);
+      try {
+        const res = await fetch("/api/reports/cursor-usage/sync", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ connectionId: targetConnectionId }),
+        });
+        const body = (await res.json().catch(() => ({}))) as { results?: SyncResult[] };
+        if (!res.ok) {
+          setSyncMessage("Sync failed.");
+          return;
+        }
+        const results = body.results ?? [];
+        setSyncResults((prev) => {
+          const merged = [...(prev ?? [])];
+          for (const result of results) {
+            const index = merged.findIndex((row) => row.connectionId === result.connectionId);
+            if (index >= 0) merged[index] = result;
+            else merged.push(result);
+          }
+          return merged;
+        });
+        const result = results[0];
+        if (result?.error) {
+          setSyncMessage(`Sync error for ${result.accountLabel ?? "account"}: ${result.error}`);
+        } else {
+          setSyncMessage(`Synced ${result?.accountLabel ?? "account"}: ${result?.spendUsers ?? 0} user(s).`);
+        }
+        await Promise.all([connectionsQuery.refetch(), summaryQuery.refetch(), usersQuery.refetch()]);
+      } finally {
+        setSyncing(false);
+      }
+    },
+    [connectionsQuery, summaryQuery, usersQuery],
+  );
+
   const saveConnection = useCallback(async () => {
     if (!accountLabel.trim() || !apiKey.trim()) return;
     const res = await fetch("/api/reports/cursor-usage/connections", {
@@ -154,29 +262,17 @@ export function CursorUsageClient({ isAdmin }: Props) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ accountLabel, apiKey }),
     });
+    const body = (await res.json().catch(() => ({}))) as { id?: string };
     if (!res.ok) {
       setSyncMessage("Could not save connection.");
       return;
     }
     setApiKey("");
-    setSyncMessage("Connection saved.");
+    setAccountLabel("");
+    setSyncMessage("Connection saved. Running first sync…");
     await connectionsQuery.refetch();
-    await summaryQuery.refetch();
-  }, [accountLabel, apiKey, connectionsQuery, summaryQuery]);
-
-  const runSync = useCallback(async () => {
-    const res = await fetch("/api/reports/cursor-usage/sync", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ connectionId: connectionId || undefined }),
-    });
-    if (!res.ok) {
-      setSyncMessage("Sync failed.");
-      return;
-    }
-    setSyncMessage("Sync completed.");
-    await Promise.all([summaryQuery.refetch(), usersQuery.refetch(), trendsQuery.refetch(), suggestionsQuery.refetch()]);
-  }, [connectionId, summaryQuery, usersQuery, trendsQuery, suggestionsQuery]);
+    if (body.id) await runSyncOne(body.id);
+  }, [accountLabel, apiKey, connectionsQuery, runSyncOne]);
 
   const cards = summaryQuery.data?.cards ?? [];
   const users = usersQuery.data?.users ?? [];
@@ -198,24 +294,70 @@ export function CursorUsageClient({ isAdmin }: Props) {
       <Card className="border-zinc-800 bg-zinc-950/70 p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="text-sm text-zinc-300">
-            Last sync:{" "}
+            Last sync (any account):{" "}
             <span className="text-zinc-100">
               {summaryQuery.data?.lastSyncAt
                 ? new Date(summaryQuery.data.lastSyncAt).toLocaleString()
                 : "Not synced yet"}
             </span>
-            {connections.some((c) => c.lastSyncError) ? (
-              <span className="ml-2 text-amber-400">Some accounts have sync errors.</span>
-            ) : null}
           </div>
           {isAdmin ? (
             <div className="flex flex-wrap gap-2">
-              <Button type="button" variant="secondary" onClick={() => void runSync()}>
-                Sync now
+              <Button type="button" variant="secondary" disabled={syncing} onClick={() => void runSyncAll()}>
+                {syncing ? "Syncing…" : connections.length > 1 ? "Sync all accounts" : "Sync now"}
               </Button>
             </div>
           ) : null}
         </div>
+
+        {connections.length > 0 ? (
+          <div className="mt-4 space-y-2">
+            <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">Connected accounts</p>
+            {connections.map((conn) => {
+              const latestResult = syncResults?.find((r) => r.connectionId === conn.id);
+              const status = latestResult
+                ? describeSyncResult(latestResult)
+                : conn.lastSyncError
+                  ? { tone: "error" as const, text: conn.lastSyncError }
+                  : conn.lastSyncSuccessAt
+                    ? { tone: "ok" as const, text: `Last synced ${formatSyncTime(conn.lastSyncSuccessAt)}` }
+                    : { tone: "warn" as const, text: "Not synced yet" };
+              return (
+                <div
+                  key={conn.id}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded border border-zinc-800 px-3 py-2"
+                >
+                  <div>
+                    <p className="text-sm font-medium text-zinc-100">{conn.accountLabel}</p>
+                    <p
+                      className={`text-xs ${
+                        status.tone === "error"
+                          ? "text-amber-400"
+                          : status.tone === "warn"
+                            ? "text-zinc-400"
+                            : "text-emerald-400"
+                      }`}
+                    >
+                      {status.text}
+                    </p>
+                  </div>
+                  {isAdmin ? (
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      className="px-2 py-1 text-xs"
+                      disabled={syncing}
+                      onClick={() => void runSyncOne(conn.id)}
+                    >
+                      Sync
+                    </Button>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+        ) : null}
+
         {isAdmin ? (
           <div className="mt-4 grid gap-3 md:grid-cols-3">
             <input
@@ -265,8 +407,8 @@ export function CursorUsageClient({ isAdmin }: Props) {
           {connections.length > 1 ? (
             <select
               className="rounded border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100"
-              value={connectionId}
-              onChange={(e) => setConnectionId(e.target.value)}
+              value={reportConnectionId}
+              onChange={(e) => setReportConnectionId(e.target.value)}
             >
               <option value="">All accounts</option>
               {connections.map((c) => (
