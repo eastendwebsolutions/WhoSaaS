@@ -20,6 +20,11 @@ export async function requireDeveloperEffectivenessAdmin() {
   return { user, response: null };
 }
 
+/** Cursor connection/sync mutations: company_admin + super_admin only. */
+export async function requireCursorUsageAdmin() {
+  return requireDeveloperEffectivenessAdmin();
+}
+
 export function toServerErrorResponse(error: unknown) {
   if (error instanceof Error && error.message === "Forbidden") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });

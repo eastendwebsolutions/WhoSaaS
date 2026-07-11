@@ -28,6 +28,20 @@ export default async function ReportsLandingPage() {
           </div>
         </Card>
 
+        {user ? (
+          <Card className="border-emerald-500/20 bg-gradient-to-br from-zinc-900/90 to-zinc-950 p-5">
+            <h2 className="text-lg font-medium text-zinc-100">Cursor Usage and Best Practices</h2>
+            <p className="mt-2 text-sm text-zinc-400">
+              Team pool usage, individual adoption history, and explainable suggestions for improving Cursor workflows.
+            </p>
+            <div className="mt-4">
+              <Link href="/reports/cursor-usage">
+                <Button>Open report</Button>
+              </Link>
+            </div>
+          </Card>
+        ) : null}
+
         {showEffectiveness ? (
           <Card className="border-indigo-500/20 bg-gradient-to-br from-zinc-900/90 to-zinc-950 p-5">
             <h2 className="text-lg font-medium text-zinc-100">AI Developer Effectiveness</h2>

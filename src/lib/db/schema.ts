@@ -674,25 +674,28 @@ export const teamStatusEvents = pgTable("team_status_events", {
   userDateIdx: index("team_status_events_user_local_date_idx").on(table.userId, table.eventLocalDate),
 }));
 
-/** Per-company Cursor Team / Enterprise analytics API credentials. */
+/** Per-company Cursor Team / Enterprise analytics API credentials (multiple accounts per company). */
 export const cursorTeamConnections = pgTable(
   "cursor_team_connections",
   {
     id: uuid("id").defaultRandom().primaryKey(),
     companyId: uuid("company_id")
       .notNull()
-      .unique()
       .references(() => companies.id, { onDelete: "cascade" }),
+    accountLabel: varchar("account_label", { length: 160 }).notNull().default("Default"),
+    isActive: boolean("is_active").notNull().default(true),
     apiKeyEncrypted: text("api_key_encrypted").notNull(),
     cursorTeamId: varchar("cursor_team_id", { length: 160 }),
     lastSyncStartedAt: timestamp("last_sync_started_at", { withTimezone: true }),
     lastSyncSuccessAt: timestamp("last_sync_success_at", { withTimezone: true }),
     lastSyncError: text("last_sync_error"),
+    firstSyncCompletedAt: timestamp("first_sync_completed_at", { withTimezone: true }),
+    apiCapabilitiesJson: jsonb("api_capabilities_json").notNull().default({}),
     createdByUserId: uuid("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
     ...timestamps,
   },
   (table) => ({
-    companyIdx: index("cursor_team_connections_company_idx").on(table.companyId),
+    companyActiveIdx: index("cursor_team_connections_company_active_idx").on(table.companyId, table.isActive),
   }),
 );
 
@@ -701,14 +704,17 @@ export const cursorUserIdentities = pgTable(
   {
     id: uuid("id").defaultRandom().primaryKey(),
     companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+    connectionId: uuid("connection_id")
+      .notNull()
+      .references(() => cursorTeamConnections.id, { onDelete: "cascade" }),
     cursorExternalUserId: varchar("cursor_external_user_id", { length: 160 }).notNull(),
     userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
     sourceEmail: varchar("source_email", { length: 255 }),
     ...timestamps,
   },
   (table) => ({
-    companyCursorUnique: uniqueIndex("cursor_user_identities_company_cursor_unique").on(
-      table.companyId,
+    connectionCursorUnique: uniqueIndex("cursor_user_identities_connection_cursor_unique").on(
+      table.connectionId,
       table.cursorExternalUserId,
     ),
     companyUserIdx: index("cursor_user_identities_company_user_idx").on(table.companyId, table.userId),
@@ -720,6 +726,7 @@ export const cursorUsageDaily = pgTable(
   {
     id: uuid("id").defaultRandom().primaryKey(),
     companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+    connectionId: uuid("connection_id").references(() => cursorTeamConnections.id, { onDelete: "cascade" }),
     userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
     usageDate: timestamp("usage_date", { withTimezone: false }).notNull(),
     totalRequests: integer("total_requests").notNull().default(0),
@@ -742,6 +749,143 @@ export const cursorUsageDaily = pgTable(
       table.ingestionSource,
     ),
     companyDateIdx: index("cursor_usage_daily_company_date_idx").on(table.companyId, table.usageDate),
+  }),
+);
+
+export const cursorAccountAllowanceSnapshots = pgTable(
+  "cursor_account_allowance_snapshots",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    connectionId: uuid("connection_id")
+      .notNull()
+      .references(() => cursorTeamConnections.id, { onDelete: "cascade" }),
+    companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+    billingCycleStart: timestamp("billing_cycle_start", { withTimezone: false }).notNull(),
+    billingCycleEnd: timestamp("billing_cycle_end", { withTimezone: false }).notNull(),
+    snapshotAt: timestamp("snapshot_at", { withTimezone: true }).defaultNow().notNull(),
+    includedSpendCents: numeric("included_spend_cents", { precision: 12, scale: 2 }),
+    onDemandSpendCents: numeric("on_demand_spend_cents", { precision: 12, scale: 2 }),
+    overallSpendCents: numeric("overall_spend_cents", { precision: 12, scale: 2 }),
+    poolUsedCents: numeric("pool_used_cents", { precision: 12, scale: 2 }),
+    poolRemainingCents: numeric("pool_remaining_cents", { precision: 12, scale: 2 }),
+    poolUsedPercent: numeric("pool_used_percent", { precision: 7, scale: 4 }),
+    billingTier: varchar("billing_tier", { length: 80 }),
+    subscriptionIncludedReqs: integer("subscription_included_reqs"),
+    autoPercentUsed: numeric("auto_percent_used", { precision: 7, scale: 4 }),
+    apiPercentUsed: numeric("api_percent_used", { precision: 7, scale: 4 }),
+    totalPercentUsed: numeric("total_percent_used", { precision: 7, scale: 4 }),
+    allowanceSource: varchar("allowance_source", { length: 40 }).notNull().default("unknown"),
+    rawAllowanceJson: jsonb("raw_allowance_json").notNull().default({}),
+    ...timestamps,
+  },
+  (table) => ({
+    connectionCycleUnique: uniqueIndex("cursor_account_allowance_snapshots_connection_cycle_unique").on(
+      table.connectionId,
+      table.billingCycleStart,
+      table.billingCycleEnd,
+      table.snapshotAt,
+    ),
+  }),
+);
+
+export const cursorSpendSnapshots = pgTable(
+  "cursor_spend_snapshots",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    connectionId: uuid("connection_id")
+      .notNull()
+      .references(() => cursorTeamConnections.id, { onDelete: "cascade" }),
+    companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+    cursorExternalUserId: varchar("cursor_external_user_id", { length: 160 }).notNull(),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+    billingCycleStart: timestamp("billing_cycle_start", { withTimezone: false }).notNull(),
+    billingCycleEnd: timestamp("billing_cycle_end", { withTimezone: false }).notNull(),
+    snapshotAt: timestamp("snapshot_at", { withTimezone: true }).defaultNow().notNull(),
+    spendCents: numeric("spend_cents", { precision: 12, scale: 2 }).notNull().default("0"),
+    includedSpendCents: numeric("included_spend_cents", { precision: 12, scale: 2 }),
+    overallSpendCents: numeric("overall_spend_cents", { precision: 12, scale: 2 }),
+    teamPoolSharePercent: numeric("team_pool_share_percent", { precision: 7, scale: 4 }),
+    topDriverJson: jsonb("top_driver_json").notNull().default({}),
+    billingTier: varchar("billing_tier", { length: 80 }),
+    autoPercentUsed: numeric("auto_percent_used", { precision: 7, scale: 4 }),
+    apiPercentUsed: numeric("api_percent_used", { precision: 7, scale: 4 }),
+    totalPercentUsed: numeric("total_percent_used", { precision: 7, scale: 4 }),
+    sourceEmail: varchar("source_email", { length: 255 }),
+    ...timestamps,
+  },
+  (table) => ({
+    connectionUserCycleUnique: uniqueIndex("cursor_spend_snapshots_connection_user_cycle_unique").on(
+      table.connectionId,
+      table.cursorExternalUserId,
+      table.billingCycleStart,
+      table.billingCycleEnd,
+      table.snapshotAt,
+    ),
+    companyIdx: index("cursor_spend_snapshots_company_idx").on(table.companyId, table.snapshotAt),
+  }),
+);
+
+export const cursorFeatureUsageDaily = pgTable(
+  "cursor_feature_usage_daily",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    connectionId: uuid("connection_id")
+      .notNull()
+      .references(() => cursorTeamConnections.id, { onDelete: "cascade" }),
+    companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+    cursorExternalUserId: varchar("cursor_external_user_id", { length: 160 }).notNull(),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+    usageDate: timestamp("usage_date", { withTimezone: false }).notNull(),
+    agentCount: integer("agent_count").notNull().default(0),
+    tabCount: integer("tab_count").notNull().default(0),
+    planCount: integer("plan_count").notNull().default(0),
+    askCount: integer("ask_count").notNull().default(0),
+    skillsCount: integer("skills_count").notNull().default(0),
+    mcpCount: integer("mcp_count").notNull().default(0),
+    modelUsageJson: jsonb("model_usage_json").notNull().default({}),
+    clientVersionJson: jsonb("client_version_json").notNull().default({}),
+    sourceEndpoint: varchar("source_endpoint", { length: 80 }),
+    ingestionSource: varchar("ingestion_source", { length: 20 }).notNull().default("api"),
+    computedAt: timestamp("computed_at", { withTimezone: true }).defaultNow().notNull(),
+    ...timestamps,
+  },
+  (table) => ({
+    connectionUserDateSourceUnique: uniqueIndex("cursor_feature_usage_daily_connection_user_date_source_unique").on(
+      table.connectionId,
+      table.cursorExternalUserId,
+      table.usageDate,
+      table.ingestionSource,
+    ),
+  }),
+);
+
+export const cursorCoachingFindings = pgTable(
+  "cursor_coaching_findings",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    connectionId: uuid("connection_id").references(() => cursorTeamConnections.id, { onDelete: "cascade" }),
+    companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+    periodStart: timestamp("period_start", { withTimezone: false }).notNull(),
+    periodEnd: timestamp("period_end", { withTimezone: false }).notNull(),
+    ruleKey: varchar("rule_key", { length: 80 }).notNull(),
+    category: varchar("category", { length: 60 }).notNull(),
+    severity: varchar("severity", { length: 40 }).notNull(),
+    title: varchar("title", { length: 255 }).notNull(),
+    explanation: text("explanation").notNull(),
+    recommendedAction: text("recommended_action").notNull(),
+    evidenceJson: jsonb("evidence_json").notNull().default({}),
+    thresholdJson: jsonb("threshold_json").notNull().default({}),
+    ruleVersion: varchar("rule_version", { length: 20 }).notNull(),
+    generatedAt: timestamp("generated_at", { withTimezone: true }).defaultNow().notNull(),
+    ...timestamps,
+  },
+  (table) => ({
+    companyPeriodIdx: index("cursor_coaching_findings_company_period_idx").on(
+      table.companyId,
+      table.periodStart,
+      table.periodEnd,
+    ),
   }),
 );
 
