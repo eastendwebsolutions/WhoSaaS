@@ -11,6 +11,7 @@ import {
 import { decrypt } from "@/lib/utils/crypto";
 import { startOfUtcDay } from "@/lib/services/analytics/utc-day";
 import { fetchDailyUsageData, fetchTeamSpend, probeCursorCapabilities } from "./cursor-admin-client";
+import { formatCursorApiKeyError } from "./cursor-validation";
 import {
   computePoolSharePercent,
   deriveAccountAllowance,
@@ -109,8 +110,10 @@ export async function syncCursorConnection(connectionId: string) {
   const capabilities = await probeCursorCapabilities(apiKey);
   if (!capabilities.spend) {
     throw new Error(
-      capabilities.spendError ??
-        "Cursor Admin API access failed. Confirm the key has admin scope and your team plan includes the Admin API.",
+      formatCursorApiKeyError(
+        capabilities.spendError ??
+          "Cursor Admin API access failed. Confirm the key has admin scope and your team plan includes the Admin API.",
+      ),
     );
   }
 

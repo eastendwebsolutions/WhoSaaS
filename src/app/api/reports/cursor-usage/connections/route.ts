@@ -5,6 +5,7 @@ import { requireCursorUsageAdmin, requireReportUser, toServerErrorResponse } fro
 import { db } from "@/lib/db";
 import { cursorTeamConnections } from "@/lib/db/schema";
 import { listCursorConnections } from "@/lib/services/cursor/cursor-query";
+import { validateCursorTeamAdminKey } from "@/lib/services/cursor/cursor-validation";
 import { encrypt } from "@/lib/utils/crypto";
 
 export async function GET() {
@@ -20,8 +21,8 @@ export async function GET() {
 
 const putSchema = z.object({
   id: z.string().uuid().optional(),
-  accountLabel: z.string().min(1).max(160),
-  apiKey: z.string().min(8).optional(),
+  accountLabel: z.string().trim().min(1).max(160),
+  apiKey: z.string().trim().min(8).optional(),
   cursorTeamId: z.string().max(160).optional(),
 });
 
@@ -36,6 +37,10 @@ export async function PUT(request: NextRequest) {
         where: and(eq(cursorTeamConnections.id, json.id), eq(cursorTeamConnections.companyId, user.companyId)),
       });
       if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
+      if (json.apiKey) {
+        const validation = await validateCursorTeamAdminKey(json.apiKey);
+        if (!validation.ok) return NextResponse.json({ error: validation.message }, { status: 400 });
+      }
       await db
         .update(cursorTeamConnections)
         .set({
@@ -52,6 +57,8 @@ export async function PUT(request: NextRequest) {
     if (!json.apiKey) {
       return NextResponse.json({ error: "apiKey is required for new connections" }, { status: 400 });
     }
+    const validation = await validateCursorTeamAdminKey(json.apiKey);
+    if (!validation.ok) return NextResponse.json({ error: validation.message }, { status: 400 });
     const [created] = await db
       .insert(cursorTeamConnections)
       .values({

@@ -13,6 +13,7 @@ import {
   YAxis,
 } from "recharts";
 import Link from "next/link";
+import { formatCursorApiKeyError } from "@/lib/services/cursor/cursor-validation";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 
@@ -78,7 +79,7 @@ function formatSyncTime(value: string | null | undefined) {
 }
 
 function describeSyncResult(result: SyncResult) {
-  if (result.error) return { tone: "error" as const, text: result.error };
+  if (result.error) return { tone: "error" as const, text: formatCursorApiKeyError(result.error) };
   const users = result.spendUsers ?? 0;
   const daily = result.dailyRows ?? 0;
   if (users === 0) {
@@ -104,6 +105,8 @@ export function CursorUsageClient({ isAdmin }: Props) {
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [accountLabel, setAccountLabel] = useState("");
   const [apiKey, setApiKey] = useState("");
+  const [replacingKeyFor, setReplacingKeyFor] = useState<string | null>(null);
+  const [replaceApiKey, setReplaceApiKey] = useState("");
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [syncResults, setSyncResults] = useState<SyncResult[] | null>(null);
   const [syncing, setSyncing] = useState(false);
@@ -243,7 +246,9 @@ export function CursorUsageClient({ isAdmin }: Props) {
         });
         const result = results[0];
         if (result?.error) {
-          setSyncMessage(`Sync error for ${result.accountLabel ?? "account"}: ${result.error}`);
+          setSyncMessage(
+            `Sync error for ${result.accountLabel ?? "account"}: ${formatCursorApiKeyError(result.error)}`,
+          );
         } else {
           setSyncMessage(`Synced ${result?.accountLabel ?? "account"}: ${result?.spendUsers ?? 0} user(s).`);
         }
@@ -262,9 +267,9 @@ export function CursorUsageClient({ isAdmin }: Props) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ accountLabel, apiKey }),
     });
-    const body = (await res.json().catch(() => ({}))) as { id?: string };
+    const body = (await res.json().catch(() => ({}))) as { id?: string; error?: string };
     if (!res.ok) {
-      setSyncMessage("Could not save connection.");
+      setSyncMessage(body.error ?? "Could not save connection.");
       return;
     }
     setApiKey("");
@@ -273,6 +278,32 @@ export function CursorUsageClient({ isAdmin }: Props) {
     await connectionsQuery.refetch();
     if (body.id) await runSyncOne(body.id);
   }, [accountLabel, apiKey, connectionsQuery, runSyncOne]);
+
+  const replaceConnectionKey = useCallback(
+    async (connection: Connection) => {
+      if (!replaceApiKey.trim()) return;
+      const res = await fetch("/api/reports/cursor-usage/connections", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: connection.id,
+          accountLabel: connection.accountLabel,
+          apiKey: replaceApiKey,
+        }),
+      });
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        setSyncMessage(body.error ?? "Could not update API key.");
+        return;
+      }
+      setReplaceApiKey("");
+      setReplacingKeyFor(null);
+      setSyncMessage(`Updated API key for ${connection.accountLabel}. Running sync…`);
+      await connectionsQuery.refetch();
+      await runSyncOne(connection.id);
+    },
+    [replaceApiKey, connectionsQuery, runSyncOne],
+  );
 
   const cards = summaryQuery.data?.cards ?? [];
   const users = usersQuery.data?.users ?? [];
@@ -318,39 +349,66 @@ export function CursorUsageClient({ isAdmin }: Props) {
               const status = latestResult
                 ? describeSyncResult(latestResult)
                 : conn.lastSyncError
-                  ? { tone: "error" as const, text: conn.lastSyncError }
+                  ? { tone: "error" as const, text: formatCursorApiKeyError(conn.lastSyncError) }
                   : conn.lastSyncSuccessAt
                     ? { tone: "ok" as const, text: `Last synced ${formatSyncTime(conn.lastSyncSuccessAt)}` }
                     : { tone: "warn" as const, text: "Not synced yet" };
               return (
-                <div
-                  key={conn.id}
-                  className="flex flex-wrap items-center justify-between gap-2 rounded border border-zinc-800 px-3 py-2"
-                >
-                  <div>
-                    <p className="text-sm font-medium text-zinc-100">{conn.accountLabel}</p>
-                    <p
-                      className={`text-xs ${
-                        status.tone === "error"
-                          ? "text-amber-400"
-                          : status.tone === "warn"
-                            ? "text-zinc-400"
-                            : "text-emerald-400"
-                      }`}
-                    >
-                      {status.text}
-                    </p>
+                <div key={conn.id} className="rounded border border-zinc-800 px-3 py-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <p className="text-sm font-medium text-zinc-100">{conn.accountLabel}</p>
+                      <p
+                        className={`text-xs ${
+                          status.tone === "error"
+                            ? "text-amber-400"
+                            : status.tone === "warn"
+                              ? "text-zinc-400"
+                              : "text-emerald-400"
+                        }`}
+                      >
+                        {status.text}
+                      </p>
+                    </div>
+                    {isAdmin ? (
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          className="px-2 py-1 text-xs"
+                          disabled={syncing}
+                          onClick={() => {
+                            setReplacingKeyFor((current) => (current === conn.id ? null : conn.id));
+                            setReplaceApiKey("");
+                          }}
+                        >
+                          Replace key
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          className="px-2 py-1 text-xs"
+                          disabled={syncing}
+                          onClick={() => void runSyncOne(conn.id)}
+                        >
+                          Sync
+                        </Button>
+                      </div>
+                    ) : null}
                   </div>
-                  {isAdmin ? (
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      className="px-2 py-1 text-xs"
-                      disabled={syncing}
-                      onClick={() => void runSyncOne(conn.id)}
-                    >
-                      Sync
-                    </Button>
+                  {isAdmin && replacingKeyFor === conn.id ? (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <input
+                        className="min-w-[240px] flex-1 rounded border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100"
+                        placeholder="New Team Admin API key"
+                        type="password"
+                        value={replaceApiKey}
+                        onChange={(e) => setReplaceApiKey(e.target.value)}
+                      />
+                      <Button type="button" disabled={syncing} onClick={() => void replaceConnectionKey(conn)}>
+                        Save key
+                      </Button>
+                    </div>
                   ) : null}
                 </div>
               );
@@ -377,6 +435,12 @@ export function CursorUsageClient({ isAdmin }: Props) {
               Add connection
             </Button>
           </div>
+        ) : null}
+        {isAdmin ? (
+          <p className="mt-3 text-xs text-zinc-500">
+            Use a Team Admin API key from Cursor Dashboard → API Keys with <code className="text-zinc-400">admin:*</code>{" "}
+            scope. Personal or Agent keys look similar but cannot read team spend.
+          </p>
         ) : null}
         {syncMessage ? <p className="mt-2 text-xs text-zinc-400">{syncMessage}</p> : null}
       </Card>
